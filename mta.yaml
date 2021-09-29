@@ -1,0 +1,158 @@
+_schema-version: "3.1"
+ID: ccap-rm-project
+description: A simple CAP project.
+version: 1.0.0
+modules:
+- name: ccap-rm-project-srv
+  type: nodejs
+  path: gen/srv
+  requires:
+  - name: ccap-rm-project-db
+  - name: ccap-rm-project-uaa
+  provides:
+  - name: srv-api
+    properties:
+      srv-url: ${default-url}
+  parameters:
+    buildpack: nodejs_buildpack
+- name: ccap-rm-project-db-deployer
+  type: hdb
+  path: gen/db
+  requires:
+  - name: ccap-rm-project-db
+  - name: ccap-rm-project-uaa
+  parameters:
+    buildpack: nodejs_buildpack
+- name: ccap-rm-project-destinations
+  type: com.sap.application.content
+  requires:
+  - name: ccap-rm-project-uaa
+    parameters:
+      service-key:
+        name: ccap-rm-project-uaa-key
+  - name: ccap-rm-project-html5-repo-host
+    parameters:
+      service-key:
+        name: ccap-rm-project-html5-repo-host-key
+  - name: srv-api
+  - name: ccap-rm-project-destination
+    parameters:
+      content-target: true
+  parameters:
+    content:
+      instance:
+        destinations:
+        - Authentication: OAuth2UserTokenExchange
+          Name: ccap-rm-project-app-srv
+          TokenServiceInstanceName: ccap-rm-project-uaa
+          TokenServiceKeyName: ccap-rm-project-uaa-key
+          URL: ~{srv-api/srv-url}
+          sap.cloud.service: ccap-rm-project.service
+        - Name: ccap-rm-project-html5-repo-host
+          ServiceInstanceName: ccap-rm-project-html5-repo-host
+          ServiceKeyName: ccap-rm-project-html5-repo-host-key
+          sap.cloud.service: ccap-rm-project.service
+        - Authentication: OAuth2UserTokenExchange
+          Name: ccap-rm-project-uaa
+          ServiceInstanceName: ccap-rm-project-uaa
+          ServiceKeyName: ccap-rm-project-uaa-key
+          sap.cloud.service: ccap-rm-project.service
+        existing_destinations_policy: update
+  build-parameters:
+    no-source: true
+- name: ccap-rm-project-app-content
+  type: com.sap.application.content
+  path: .
+  requires:
+  - name: ccap-rm-project-html5-repo-host
+    parameters:
+      content-target: true
+  build-parameters:
+    build-result: resources
+    requires:
+    - artifacts:
+      - nsrisks.zip
+      name: nsrisks
+      target-path: resources/
+    - artifacts:
+      - nsmitigations.zip
+      name: nsmitigations
+      target-path: resources/
+- name: nsrisks
+  type: html5
+  path: app/risks
+  build-parameters:
+    build-result: dist
+    builder: custom
+    commands:
+    - npm install
+    - npm run build:cf
+    supported-platforms: []
+- name: nsmitigations
+  type: html5
+  path: app/mitigations
+  build-parameters:
+    build-result: dist
+    builder: custom
+    commands:
+    - npm install
+    - npm run build:cf
+    supported-platforms: []
+resources:
+- name: ccap-rm-project-db
+  type: com.sap.xs.hdi-container
+  parameters:
+    service: hana
+    service-plan: hdi-shared
+  properties:
+    hdi-service-name: ${service-name}
+- name: ccap-rm-project-uaa
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      role-collections:
+      - description: Manage Risks
+        name: RiskManager-${space}
+        role-template-references:
+        - $XSAPPNAME.RiskManager
+      - description: View Risks
+        name: RiskViewer-${space}
+        role-template-references:
+        - $XSAPPNAME.RiskViewer
+      tenant-mode: dedicated
+      xsappname: ccap-rm-project-${space}
+    path: ./xs-security.json
+    service: xsuaa
+    service-plan: application
+- name: ccap-rm-project-destination
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      HTML5Runtime_enabled: true
+      init_data:
+        instance:
+          destinations:
+          - Authentication: NoAuthentication
+            Name: ui5
+            ProxyType: Internet
+            Type: HTTP
+            URL: https://ui5.sap.com
+          existing_destinations_policy: update
+      version: 1.0.0
+    service: destination
+    service-plan: lite
+- name: ccap-rm-project-html5-repo-host
+  type: org.cloudfoundry.managed-service
+  parameters:
+    service: html5-apps-repo
+    service-plan: app-host
+parameters:
+  deploy_mode: html5-repo
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+  - builder: custom
+    commands:
+    - npm install --production
+    - npx -p @sap/cds-dk cds build --production
+    - npx rimraf gen/db/src/gen/data

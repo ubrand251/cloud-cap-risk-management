@@ -1,0 +1,9 @@
+---
+applications:
+  - name: ccap-rm-project-srv
+    path: .
+    memory: 256M
+    buildpacks:
+      - nodejs_buildpack
+    services:
+      - ccap-rm-project-db
